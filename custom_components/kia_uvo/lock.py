@@ -43,4 +43,5 @@ class Lock(KiaUvoEntity, LockEntity):
         await self.vehicle.lock_action(VEHICLE_LOCK_ACTION.LOCK)
 
     async def async_unlock(self):
+        _LOGGER.debug(f"unlocking ...")
         await self.vehicle.lock_action(VEHICLE_LOCK_ACTION.UNLOCK)

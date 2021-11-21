@@ -151,3 +151,5 @@ class VEHICLE_ENGINE_TYPE(Enum):
 class VEHICLE_LOCK_ACTION(Enum):
     LOCK = "close"
     UNLOCK = "open"
+
+ENTITIES = []

@@ -304,6 +304,7 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
         )
 
     def check_action_status(self, token: Token, xid: str):
+        _LOGGER.debug(f"sleeping ...")
         time.sleep(15)
         completed = False
         while not completed:

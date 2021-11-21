@@ -77,7 +77,11 @@ class Vehicle:
                 )
                 await self.force_update()
             else:
-                async_dispatcher_send(self.hass, self.topic_update)
+                _LOGGER.debug(f"updates on main?")
+                for entity in ENTITIES:
+                    if entity.update_method is not None:
+                        entity.update_method()
+#                async_dispatcher_send(self.hass, self.topic_update)
 
         except Exception as ex:
             _LOGGER.error(
