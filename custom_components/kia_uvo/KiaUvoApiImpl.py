@@ -68,7 +68,15 @@ class KiaUvoApiImpl:
     ):
         pass
 
+    def start_climate_ev(
+        self, token: Token, set_temp, duration, defrost, climate, heating
+    ):
+        pass
+
     def stop_climate(self, token: Token):
+        pass
+
+    def stop_climate_ev(self, token: Token):
         pass
 
     def start_charge(self, token: Token):

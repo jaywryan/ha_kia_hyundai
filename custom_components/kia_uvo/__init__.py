@@ -80,7 +80,7 @@ async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
 
     async def async_handle_update(call):
         vehicle: Vehicle = hass.data[DOMAIN][DATA_VEHICLE_INSTANCE]
-        await vehicle.update()
+        await vehicle.async_update()
 
     async def async_handle_start_climate(call):
         set_temp = call.data.get("Temperature")
@@ -187,7 +187,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         await vehicle.refresh_token()
         local_timezone = vehicle.kia_uvo_api.get_timezone_by_region()
         event_time_local = event_time_utc.astimezone(local_timezone)
-        await vehicle.update()
+        await vehicle.async_update()
         call_force_update = False
 
         if (

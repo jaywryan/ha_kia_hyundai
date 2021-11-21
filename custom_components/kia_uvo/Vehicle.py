@@ -6,11 +6,7 @@ import requests
 import traceback
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.dispatcher import (
-    async_dispatcher_connect,
-    async_dispatcher_send,
-)
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 import homeassistant.util.dt as dt_util
 
@@ -47,11 +43,29 @@ class Vehicle:
         self.engine_type = None
         self.last_updated: datetime = datetime.min
         self.force_update_try_caller = None
-        self.topic_update = TOPIC_UPDATE.format(self.id)
         self.current_ev_battery = None
+        self._subscriptions = {}
         _LOGGER.debug(f"{DOMAIN} - Received token into Vehicle Object {vars(token)}")
 
-    async def update(self):
+    @callback
+    def async_subscribe_entity_id(self, entity_id, update_callback):
+        self._subscriptions.setdefault(entity_id, []).append(update_callback)
+
+        def _unsubscribe():
+            self.async_unsubscribe_entity_id(entity_id, update_callback)
+
+        return _unsubscribe
+
+    @callback
+    def async_unsubscribe_entity_id(self, entity_id, update_callback):
+        self._subscriptions[entity_id].remove(update_callback)
+        if not self._subscriptions[entity_id]:
+            del self._subscriptions[entity_id]
+
+        if self._subscriptions:
+            return
+
+    async def async_update(self):
         try:
             previous_vehicle_status = self.get_child_value("vehicleStatus")
             previous_vehicle_location = self.get_child_value("vehicleLocation")
@@ -66,9 +80,9 @@ class Vehicle:
                 )
 
             if (
-                self.get_child_value("vehicleStatus.engine") == False
+                not self.get_child_value("vehicleStatus.engine")
                 and previous_vehicle_status is not None
-                and previous_vehicle_status["engine"] == False
+                and not previous_vehicle_status["engine"]
                 and self.get_child_value("vehicleStatus.evStatus.batteryStatus") == 0
                 and previous_vehicle_status["evStatus"]["batteryStatus"] != 0
             ):
@@ -77,7 +91,9 @@ class Vehicle:
                 )
                 await self.force_update()
             else:
-                async_dispatcher_send(self.hass, self.topic_update)
+                for entity_id in self._subscriptions.keys():
+                    for update_callback in self._subscriptions[entity_id]:
+                        update_callback()
 
         except Exception as ex:
             _LOGGER.error(
@@ -90,7 +106,7 @@ class Vehicle:
         await self.hass.async_add_executor_job(
             self.kia_uvo_api.update_vehicle_status, self.token
         )
-        await self.update()
+        await self.async_update()
 
     async def force_update_loop(self, _):
         _LOGGER.debug(
@@ -117,7 +133,7 @@ class Vehicle:
         old_lat = None
         old_lon = None
         old_geocode = None
-        if not old_vehicle_location is None:
+        if old_vehicle_location is not None:
             old_lat = old_vehicle_location["coord"]["lat"]
             old_lon = old_vehicle_location["coord"]["lon"]
             old_geocode = old_vehicle_location.get("geocodedLocation", None)

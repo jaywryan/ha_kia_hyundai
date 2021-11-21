@@ -1,5 +1,3 @@
-import logging
-
 from datetime import tzinfo
 from dateutil import tz
 from enum import Enum
@@ -32,7 +30,6 @@ TIME_ZONE_EUROPE = tz.gettz("Europe/Berlin")
 PARALLEL_UPDATES: int = 1
 CONFIG_FLOW_VERSION: int = 1
 PLATFORMS = ["binary_sensor", "device_tracker", "sensor", "lock"]
-TOPIC_UPDATE: str = f"{DOMAIN}_update_{0}"
 
 # Home Assistant Data Storage Constants
 DATA_VEHICLE_INSTANCE: str = "vehicle"  # Vehicle Instance
