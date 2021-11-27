@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from datetime import timedelta, datetime
 import push_receiver
 import random
-import requests
+from aiohttp import ClientSession
 from urllib.parse import parse_qs, urlparse
 import uuid
 import traceback
@@ -83,30 +83,30 @@ class KiaUvoApiEU(KiaUvoApiImpl):
             + BRANDS[brand].lower()
             + ".json"
         )
+        self.api_session = ClientSession(raise_for_status=True)
 
-    def get_stamps_from_bluelinky(self) -> list:
+    async def get_stamps_from_bluelinky(self) -> list:
         stamps = []
-        response = requests.get(self.stamps_url)
-        stampsAsText = response.text
-        for stamp in stampsAsText.split('"'):
+        response = self.api_session.get(url=self.stamps_url)
+        stamps_as_text = await response.text()
+        for stamp in stamps_as_text.split('"'):
             stamp = stamp.strip()
             if len(stamp) == 64:
                 stamps.append(stamp)
         return stamps
 
-    def login(self) -> Token:
-
+    async def login(self) -> Token:
         if self.stamps is None:
-            self.stamps = self.get_stamps_from_bluelinky()
+            self.stamps = await self.get_stamps_from_bluelinky()
 
         self.device_id, self.stamp = self.get_device_id()
         self.cookies = self.get_cookies()
         self.set_session_language()
         self.authorization_code = None
         try:
-            self.authorization_code = self.get_authorization_code_with_redirect_url()
+            self.authorization_code = await self.get_authorization_code_with_redirect_url()
         except Exception as ex1:
-            self.authorization_code = self.get_authorization_code_with_form()
+            self.authorization_code = await self.get_authorization_code_with_form()
 
         (
             self.access_token,
@@ -116,7 +116,7 @@ class KiaUvoApiEU(KiaUvoApiImpl):
 
         self.token_type, self.refresh_token = self.get_refresh_token()
 
-        response = self.get_vehicle()
+        response = await self.get_vehicle()
         vehicle_name = response["vehicles"][0]["nickname"]
         vehicle_id = response["vehicles"][0]["vehicleId"]
         vehicle_model = response["vehicles"][0]["vehicleName"]
@@ -426,23 +426,6 @@ class KiaUvoApiEU(KiaUvoApiImpl):
         response = response.json()
         _LOGGER.debug(f"{DOMAIN} - get_cached_vehicle_status response {response}")
         return response["resMsg"]["vehicleStatusInfo"]
-
-    def get_geocoded_location(self, lat, lon):
-        email_parameter = ""
-        if self.use_email_with_geocode_api == True:
-            email_parameter = "&email=" + self.username
-
-        url = (
-            "https://nominatim.openstreetmap.org/reverse?lat="
-            + str(lat)
-            + "&lon="
-            + str(lon)
-            + "&format=json&addressdetails=1&zoom=18"
-            + email_parameter
-        )
-        response = requests.get(url)
-        response = response.json()
-        return response
 
     def update_vehicle_status(self, token: Token):
         url = self.SPA_API_URL + "vehicles/" + token.vehicle_id + "/status"

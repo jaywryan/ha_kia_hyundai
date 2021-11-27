@@ -1,23 +1,12 @@
 import logging
 
-import time
 from datetime import timedelta, datetime
-import json
-import push_receiver
-import random
-import requests
-from urllib.parse import parse_qs, urlparse
-import uuid
+from aiohttp import ClientSession
 import time
-import curlify
 
 from .const import (
     DOMAIN,
-    BRANDS,
-    BRAND_HYUNDAI,
-    BRAND_KIA,
     DATE_FORMAT,
-    VEHICLE_LOCK_ACTION,
 )
 from .KiaUvoApiImpl import KiaUvoApiImpl
 from .Token import Token
@@ -77,9 +66,10 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
             "clientSecret": "v558o935-6nne-423i-baa8",
         }
 
+        self.api_session = ClientSession(raise_for_status=True)
         _LOGGER.debug(f"{DOMAIN} - initial API headers: {self.API_HEADERS}")
 
-    def login(self) -> Token:
+    async def login(self) -> Token:
         username = self.username
         password = self.password
 
@@ -89,9 +79,9 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
 
         data = {"username": username, "password": password}
         headers = self.API_HEADERS
-        response = requests.post(url, json=data, headers=headers)
+        response = await self.api_session.post(url=url, json=data, headers=headers)
         _LOGGER.debug(f"{DOMAIN} - Sign In Response {response.text}")
-        response = response.json()
+        response = await response.json()
         access_token = response["access_token"]
         refresh_token = response["refresh_token"]
         expires_in = float(response["expires_in"])
@@ -102,9 +92,9 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
         url = self.API_URL + "enrollment/details/" + username
         headers = self.API_HEADERS
         headers["accessToken"] = access_token
-        response = requests.get(url, headers=headers)
-        _LOGGER.debug(f"{DOMAIN} - Get Vehicles Response {response.text}")
-        response = response.json()
+        response = await self.api_session.get(url=url, headers=headers)
+        _LOGGER.debug(f"{DOMAIN} - Get Vehicles Response {await response.text()}")
+        response = await response.json()
         vehicle_details = response["enrolledVehicleDetails"][0]["vehicleDetails"]
         vehicle_name = vehicle_details["nickName"]
         vehicle_id = vehicle_details["vin"]
@@ -135,7 +125,7 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
 
         return token
 
-    def get_cached_vehicle_status(self, token: Token):
+    async def get_cached_vehicle_status(self, token: Token):
         # Vehicle Status Call
         url = self.API_URL + "rcs/rvs/vehicleStatus"
         headers = self.API_HEADERS
@@ -144,9 +134,9 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
 
         _LOGGER.debug(f"{DOMAIN} - using API headers: {self.API_HEADERS}")
 
-        response = requests.get(url, headers=headers)
-        response = response.json()
-        _LOGGER.debug(f"{DOMAIN} - get_cached_vehicle_status response {response}")
+        response = await self.api_session.get(url=url, headers=headers)
+        response = await response.json()
+        _LOGGER.debug(f"{DOMAIN} - get_cached_vehicle_status response {await response.text()}")
 
         vehicle_status = {}
         vehicle_status["vehicleStatus"] = response["vehicleStatus"]
@@ -204,10 +194,10 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
     def get_pin_token(self, token: Token):
         pass
 
-    def update_vehicle_status(self, token: Token):
+    async def update_vehicle_status(self, token: Token):
         pass
 
-    def lock_action(self, token: Token, action):
+    async def lock_action(self, token: Token, action):
         _LOGGER.debug(f"{DOMAIN} - Action for lock is: {action}")
 
         if action == "close":
@@ -224,18 +214,18 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
         headers["APPCLOUD-VIN"] = token.vehicle_id
 
         data = {"userName": self.username, "vin": token.vehicle_id}
-        response = requests.post(url, headers=headers, json=data)
+        response = await self.api_session.post(url=url, headers=headers, json=data)
         # response_headers = response.headers
         # response = response.json()
         # action_status = self.check_action_status(token, headers["pAuth"], response_headers["transactionId"])
 
         # _LOGGER.debug(f"{DOMAIN} - Received lock_action response {action_status}")
         _LOGGER.debug(
-            f"{DOMAIN} - Received lock_action response status code: {response.status_code}"
+            f"{DOMAIN} - Received lock_action response status code: {response.status}"
         )
-        _LOGGER.debug(f"{DOMAIN} - Received lock_action response: {response.text}")
+        _LOGGER.debug(f"{DOMAIN} - Received lock_action response: {await response.text()}")
 
-    def start_climate(
+    async def start_climate(
         self, token: Token, set_temp, duration, defrost, climate, heating
     ):
         _LOGGER.debug(f"{DOMAIN} - Start engine..")
@@ -261,13 +251,12 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
         }
         _LOGGER.debug(f"{DOMAIN} - Start engine data: {data}")
 
-        response = requests.post(url, json=data, headers=headers)
+        response = await self.api_session.post(url=url, json=data, headers=headers)
 
-        # _LOGGER.debug(f"{DOMAIN} - Start engine curl: {curlify.to_curl(response.request)}")
         _LOGGER.debug(
-            f"{DOMAIN} - Start engine response status code: {response.status_code}"
+            f"{DOMAIN} - Start engine response status code: {response.status}"
         )
-        _LOGGER.debug(f"{DOMAIN} - Start engine response: {response.text}")
+        _LOGGER.debug(f"{DOMAIN} - Start engine response: {await response.text()}")
 
     def stop_climate(self, token: Token):
         _LOGGER.debug(f"{DOMAIN} - Stop engine..")
@@ -281,11 +270,11 @@ class HyundaiBlueLinkAPIUSA(KiaUvoApiImpl):
 
         _LOGGER.debug(f"{DOMAIN} - Stop engine headers: {headers}")
 
-        response = requests.post(url, headers=headers)
+        response = await self.api_session.post(url=url, headers=headers)
         _LOGGER.debug(
-            f"{DOMAIN} - Stop engine response status code: {response.status_code}"
+            f"{DOMAIN} - Stop engine response status code: {response.status}"
         )
-        _LOGGER.debug(f"{DOMAIN} - Stop engine response: {response.text}")
+        _LOGGER.debug(f"{DOMAIN} - Stop engine response: {await response.text()}")
 
     def start_charge(self, token: Token):
         pass

@@ -152,9 +152,7 @@ class KiaUvoConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
             try:
-                self.token = await self.hass.async_add_executor_job(
-                    self.kia_uvo_api.login
-                )
+                self.token = await self.kia_uvo_api.login()
                 return self.async_create_entry(
                     title=username,
                     data={

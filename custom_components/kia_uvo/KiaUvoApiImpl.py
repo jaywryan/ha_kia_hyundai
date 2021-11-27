@@ -32,18 +32,18 @@ class KiaUvoApiImpl:
         self.last_action_tracked = False
         self.supports_soc_range = True
 
-    def login(self) -> Token:
+    async def login(self) -> Token:
         pass
 
-    def get_cached_vehicle_status(self, token: Token):
+    async def get_cached_vehicle_status(self, token: Token):
         pass
 
-    def check_last_action_status(self, token: Token):
+    async def check_last_action_status(self, token: Token):
         pass
 
-    def get_geocoded_location(self, lat, lon):
+    async def get_geocoded_location(self, lat, lon):
         email_parameter = ""
-        if self.use_email_with_geocode_api == True:
+        if self.use_email_with_geocode_api:
             email_parameter = "&email=" + self.username
 
         url = (
@@ -58,27 +58,27 @@ class KiaUvoApiImpl:
         response = response.json()
         return response
 
-    def update_vehicle_status(self, token: Token):
+    async def update_vehicle_status(self, token: Token):
         pass
 
-    def lock_action(self, token: Token, action):
+    async def lock_action(self, token: Token, action):
         pass
 
-    def start_climate(
+    async def start_climate(
         self, token: Token, set_temp, duration, defrost, climate, heating
     ):
         pass
 
-    def stop_climate(self, token: Token):
+    async def stop_climate(self, token: Token):
         pass
 
-    def start_charge(self, token: Token):
+    async def start_charge(self, token: Token):
         pass
 
-    def stop_charge(self, token: Token):
+    async def stop_charge(self, token: Token):
         pass
 
-    def set_charge_limits(self, token: Token, ac_limit: int, dc_limit: int):
+    async def set_charge_limits(self, token: Token, ac_limit: int, dc_limit: int):
         pass
 
     def get_timezone_by_region(self) -> tzinfo:

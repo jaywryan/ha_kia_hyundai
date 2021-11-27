@@ -14,7 +14,6 @@ from .const import (
 from .KiaUvoApiImpl import KiaUvoApiImpl
 from .Token import Token
 from aiohttp import ClientSession, ClientResponse, ClientError
-import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,14 +23,14 @@ class AuthError(ClientError):
 
 
 def request_with_active_session(func):
-    def request_with_active_session_wrapper(*args, **kwargs):
+    async def request_with_active_session_wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            return await func(*args, **kwargs)
         except AuthError:
             _LOGGER.debug(f"got invalid session, attempting to repair and resend")
             self = args[0]
             token = kwargs["token"]
-            new_token = self.login()
+            new_token = await self.login()
             _LOGGER.debug(
                 f"old token:{token.access_token}, new token:{new_token.access_token}"
             )
@@ -41,29 +40,24 @@ def request_with_active_session(func):
             json_body = kwargs.get("json_body", None)
             if json_body is not None and json_body.get("vinKey", None):
                 json_body["vinKey"] = [token.vehicle_regid]
-            response = func(*args, **kwargs)
+            response = await func(*args, **kwargs)
             return response
 
     return request_with_active_session_wrapper
 
 
 def request_with_logging(func):
-    def request_with_logging_wrapper(*args, **kwargs):
-        self = args[0]
+    async def request_with_logging_wrapper(*args, **kwargs):
         url = kwargs["url"]
         json_body = kwargs.get("json_body")
         if json_body is not None:
             _LOGGER.debug(f"sending {url} request with {json_body}")
         else:
             _LOGGER.debug(f"sending {url} request")
-        response = func(*args, **kwargs)
-        response_text = asyncio.run_coroutine_threadsafe(
-            response.text(), self.hass.loop
-        ).result()
+        response = await func(*args, **kwargs)
+        response_text = await response.text()
         _LOGGER.debug(f"got response {response_text}")
-        response_json = asyncio.run_coroutine_threadsafe(
-            response.json(), self.hass.loop
-        ).result()
+        response_json = await response.json()
         if response_json["status"]["statusCode"] == 0:
             return response
         if (
@@ -73,9 +67,7 @@ def request_with_logging(func):
         ):
             _LOGGER.debug(f"error: session invalid")
             raise AuthError
-        response_text = asyncio.run_coroutine_threadsafe(
-            response.text(), self.hass.loop
-        ).result()
+        response_text = await response.text()
         _LOGGER.error(f"error: unknown error response {response_text}")
         raise ClientError
 
@@ -113,10 +105,7 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
         self.BASE_URL: str = "api.owners.kia.com"
         self.API_URL: str = "https://" + self.BASE_URL + "/apigw/v1/"
 
-        self.session = ClientSession(raise_for_status=True)
-
-    def __del__(self):
-        asyncio.run_coroutine_threadsafe(self.session.close(), self.hass.loop).result()
+        self.api_session = ClientSession(raise_for_status=True)
 
     def api_headers(self) -> dict:
         return {
@@ -149,25 +138,21 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
 
     @request_with_active_session
     @request_with_logging
-    def post_request_with_logging_and_active_session(
+    async def post_request_with_logging_and_active_session(
         self, token: Token, url: str, json_body: dict
     ) -> ClientResponse:
         headers = self.authed_api_headers(token)
-        return asyncio.run_coroutine_threadsafe(
-            self.session.post(url=url, json=json_body, headers=headers), self.hass.loop
-        ).result()
+        return await self.api_session.post(url=url, json=json_body, headers=headers)
 
     @request_with_active_session
     @request_with_logging
-    def get_request_with_logging_and_active_session(
+    async def get_request_with_logging_and_active_session(
         self, token: Token, url: str
     ) -> ClientResponse:
         headers = self.authed_api_headers(token)
-        return asyncio.run_coroutine_threadsafe(
-            self.session.get(url=url, headers=headers), self.hass.loop
-        ).result()
+        return await self.api_session.get(url=url, headers=headers)
 
-    def login(self) -> Token:
+    async def login(self) -> Token:
         username = self.username
         password = self.password
 
@@ -182,14 +167,10 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
         }
         headers = self.api_headers()
         _LOGGER.debug(f"posting to {url} with data:{data}")
-        response: ClientResponse = asyncio.run_coroutine_threadsafe(
-            self.session.post(url=url, json=data, headers=headers), self.hass.loop
-        ).result()
+        response: ClientResponse = await self.api_session.post(url=url, json=data, headers=headers)
         session_id = response.headers.get("sid")
         if not session_id:
-            response_text = asyncio.run_coroutine_threadsafe(
-                response.text(), self.hass.loop
-            ).result()
+            response_text = await response.text()
             raise Exception(
                 f"no session id returned in login. Response: {response_text} headers {response.headers} cookies {response.cookies}"
             )
@@ -200,12 +181,8 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
         headers = self.api_headers()
         headers["sid"] = session_id
         _LOGGER.debug(f"getting {url}")
-        response: ClientResponse = asyncio.run_coroutine_threadsafe(
-            self.session.get(url=url, headers=headers), self.hass.loop
-        ).result()
-        response_json = asyncio.run_coroutine_threadsafe(
-            response.json(), self.hass.loop
-        ).result()
+        response: ClientResponse = await self.api_session.get(url=url, headers=headers)
+        response_json = await response.json()
 
         _LOGGER.debug(f"Get Vehicles Response {response_json}")
         vehicle_summary = response_json["payload"]["vehicleSummary"][0]
@@ -237,7 +214,7 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
 
         return token
 
-    def get_cached_vehicle_status(self, token: Token):
+    async def get_cached_vehicle_status(self, token: Token):
         url = self.API_URL + "cmm/gvi"
 
         body = {
@@ -259,13 +236,11 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
             },
             "vinKey": [token.vehicle_regid],
         }
-        response = self.post_request_with_logging_and_active_session(
+        response = await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
 
-        response_json = asyncio.run_coroutine_threadsafe(
-            response.json(), self.hass.loop
-        ).result()
+        response_json = await response.json()
 
         vehicle_status = response_json["payload"]["vehicleInfoList"][0][
             "lastVehicleInfo"
@@ -322,30 +297,28 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
     def get_pin_token(self, token: Token):
         pass
 
-    def update_vehicle_status(self, token: Token):
+    async def update_vehicle_status(self, token: Token):
         url = self.API_URL + "rems/rvs"
         body = {
             "requestType": 0  # value of 1 would return cached results instead of forcing update
         }
-        self.post_request_with_logging_and_active_session(
+        await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
 
-    def check_last_action_status(self, token: Token):
+    async def check_last_action_status(self, token: Token):
         url = self.API_URL + "cmm/gts"
         body = {"xid": self.last_action_xid}
-        response = self.post_request_with_logging_and_active_session(
+        response = await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
-        response_json = asyncio.run_coroutine_threadsafe(
-            response.json(), self.hass.loop
-        ).result()
+        response_json = await response.json()
         self.last_action_completed = all(
             v == 0 for v in response_json["payload"].values()
         )
         return self.last_action_completed
 
-    def lock_action(self, token: Token, action):
+    async def lock_action(self, token: Token, action):
         _LOGGER.debug(f"Action for lock is: {action}")
         if action == "close":
             url = self.API_URL + "rems/door/lock"
@@ -354,13 +327,13 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
             url = self.API_URL + "rems/door/unlock"
             _LOGGER.debug(f"Calling unlock")
 
-        response = self.get_request_with_logging_and_active_session(
+        response = await self.get_request_with_logging_and_active_session(
             token=token, url=url
         )
 
         self.last_action_xid = response.headers["Xid"]
 
-    def start_climate(
+    async def start_climate(
         self, token: Token, set_temp, duration, defrost, climate, heating
     ):
         url = self.API_URL + "rems/start"
@@ -383,34 +356,34 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
                 },
             }
         }
-        response = self.post_request_with_logging_and_active_session(
+        response = await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
         self.last_action_xid = response.headers["Xid"]
 
-    def stop_climate(self, token: Token):
+    async def stop_climate(self, token: Token):
         url = self.API_URL + "rems/stop"
-        response = self.get_request_with_logging_and_active_session(
+        response = await self.get_request_with_logging_and_active_session(
             token=token, url=url
         )
         self.last_action_xid = response.headers["Xid"]
 
-    def start_charge(self, token: Token):
+    async def start_charge(self, token: Token):
         url = self.API_URL + "evc/charge"
         body = {"chargeRatio": 100}
-        response = self.post_request_with_logging_and_active_session(
+        response = await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
         self.last_action_xid = response.headers["Xid"]
 
-    def stop_charge(self, token: Token):
+    async def stop_charge(self, token: Token):
         url = self.API_URL + "evc/cancel"
-        response = self.get_request_with_logging_and_active_session(
+        response = await self.get_request_with_logging_and_active_session(
             token=token, url=url
         )
         self.last_action_xid = response.headers["Xid"]
 
-    def set_charge_limits(self, token: Token, ac_limit: int, dc_limit: int):
+    async def set_charge_limits(self, token: Token, ac_limit: int, dc_limit: int):
         url = self.API_URL + "evc/sts"
         body = {
             "targetSOClist": [
@@ -424,7 +397,7 @@ class KiaUvoAPIUSA(KiaUvoApiImpl):
                 },
             ]
         }
-        response = self.post_request_with_logging_and_active_session(
+        response = await self.post_request_with_logging_and_active_session(
             token=token, url=url, json_body=body
         )
         self.last_action_xid = response.headers["Xid"]

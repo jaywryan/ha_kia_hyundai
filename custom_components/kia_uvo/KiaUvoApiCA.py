@@ -2,7 +2,7 @@ import logging
 
 from datetime import timedelta, datetime
 import json
-import requests
+from aiohttp import ClientSession
 
 from .const import (
     DOMAIN,
@@ -59,8 +59,9 @@ class KiaUvoApiCA(KiaUvoApiImpl):
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
         }
+        self.api_session = ClientSession(raise_for_status=True)
 
-    def login(self) -> Token:
+    async def login(self) -> Token:
         username = self.username
         password = self.password
 
@@ -69,9 +70,9 @@ class KiaUvoApiCA(KiaUvoApiImpl):
         url = self.API_URL + "lgn"
         data = {"loginId": username, "password": password}
         headers = self.API_HEADERS
-        response = requests.post(url, json=data, headers=headers)
-        _LOGGER.debug(f"{DOMAIN} - Sign In Response {response.text}")
-        response = response.json()
+        response = await self.api_session.post(url=url, json=data, headers=headers)
+        _LOGGER.debug(f"{DOMAIN} - Sign In Response {await response.text()}")
+        response = await response.json()
         response = response["result"]
         access_token = response["accessToken"]
         refresh_token = response["refreshToken"]
@@ -82,9 +83,9 @@ class KiaUvoApiCA(KiaUvoApiImpl):
         url = self.API_URL + "vhcllst"
         headers = self.API_HEADERS
         headers["accessToken"] = access_token
-        response = requests.post(url, headers=headers)
-        _LOGGER.debug(f"{DOMAIN} - Get Vehicles Response {response.text}")
-        response = response.json()
+        response = await self.api_session.post(url=url, headers=headers)
+        _LOGGER.debug(f"{DOMAIN} - Get Vehicles Response {await response.text()}")
+        response = await response.json()
         response = response["result"]
         vehicle_name = response["vehicles"][0]["nickName"]
         vehicle_id = response["vehicles"][0]["vehicleId"]
@@ -111,16 +112,16 @@ class KiaUvoApiCA(KiaUvoApiImpl):
 
         return token
 
-    def get_cached_vehicle_status(self, token: Token):
+    async def get_cached_vehicle_status(self, token: Token):
         # Vehicle Status Call
         url = self.API_URL + "lstvhclsts"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
 
-        response = requests.post(url, headers=headers)
-        response = response.json()
-        _LOGGER.debug(f"{DOMAIN} - get_cached_vehicle_status response {response}")
+        response = await self.api_session.post(url=url, headers=headers)
+        response = await response.json()
+        _LOGGER.debug(f"{DOMAIN} - get_cached_vehicle_status response {await response.text()}")
         response = response["result"]["status"]
 
         vehicle_status = {}
@@ -129,9 +130,9 @@ class KiaUvoApiCA(KiaUvoApiImpl):
 
         # Service Status Call
         url = self.API_URL + "nxtsvc"
-        response = requests.post(url, headers=headers)
-        response = response.json()
-        _LOGGER.debug(f"{DOMAIN} - Get Service status data {response}")
+        response = await self.api_session.post(url=url, headers=headers)
+        response = await response.json()
+        _LOGGER.debug(f"{DOMAIN} - Get Service status data {await response.text()}")
         response = response["result"]["maintenanceInfo"]
 
         vehicle_status["odometer"] = {}
@@ -153,30 +154,30 @@ class KiaUvoApiCA(KiaUvoApiImpl):
                 vehicle_status["odometer"]["value"]
                 > self.old_vehicle_status["odometer"]["value"]
             ):
-                vehicle_status["vehicleLocation"] = self.get_location(token)
+                vehicle_status["vehicleLocation"] = await self.get_location(token)
             else:
                 vehicle_status["vehicleLocation"] = self.old_vehicle_status[
                     "vehicleLocation"
                 ]
         else:
-            vehicle_status["vehicleLocation"] = self.get_location(token)
+            vehicle_status["vehicleLocation"] = await self.get_location(token)
 
         self.old_vehicle_status = vehicle_status
         return vehicle_status
 
-    def get_location(self, token: Token):
+    async def get_location(self, token: Token):
         url = self.API_URL + "fndmcr"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
         try:
-            headers["pAuth"] = self.get_pin_token(token)
+            headers["pAuth"] = await self.get_pin_token(token)
 
-            response = requests.post(
-                url, headers=headers, data=json.dumps({"pin": self.pin})
+            response = await self.api_session.post(
+                url=url, headers=headers, data=json.dumps({"pin": self.pin})
             )
-            response = response.json()
-            _LOGGER.debug(f"{DOMAIN} - Get Vehicle Location {response}")
+            response = await response.json()
+            _LOGGER.debug(f"{DOMAIN} - Get Vehicle Location {await response.text()}")
             if response["responseHeader"]["responseCode"] != 0:
                 raise Exception("No Location Located")
 
@@ -187,31 +188,31 @@ class KiaUvoApiCA(KiaUvoApiImpl):
         else:
             return response["result"]
 
-    def get_pin_token(self, token: Token):
+    async def get_pin_token(self, token: Token):
         url = self.API_URL + "vrfypin"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
 
-        response = requests.post(
-            url, headers=headers, data=json.dumps({"pin": self.pin})
+        response = await self.api_session.post(
+            url=url, headers=headers, data=json.dumps({"pin": self.pin})
         )
-        _LOGGER.debug(f"{DOMAIN} - Received Pin validation response {response}")
-        result = response.json()["result"]
+        _LOGGER.debug(f"{DOMAIN} - Received Pin validation response {await response.text()}")
+        response_json = await response.json()
 
-        return result["pAuth"]
+        return response_json["result"]["pAuth"]
 
-    def update_vehicle_status(self, token: Token):
+    async def update_vehicle_status(self, token: Token):
         url = self.API_URL + "rltmvhclsts"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
 
-        response = requests.post(url, headers=headers)
-        response = response.json()
-        _LOGGER.debug(f"{DOMAIN} - Received forced vehicle data {response}")
+        response = await self.api_session.post(url=url, headers=headers)
+        response = await response.json()
+        _LOGGER.debug(f"{DOMAIN} - Received forced vehicle data {await response.text()}")
 
-    def lock_action(self, token: Token, action):
+    async def lock_action(self, token: Token, action):
         _LOGGER.debug(f"{DOMAIN} - Action for lock is: {action}")
         if action == "close":
             url = self.API_URL + "drlck"
@@ -222,26 +223,25 @@ class KiaUvoApiCA(KiaUvoApiImpl):
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
-        response = requests.post(
+        response = await self.api_session.post(
             url, headers=headers, data=json.dumps({"pin": self.pin})
         )
         response_headers = response.headers
-        response = response.json()
         self.last_action_xid = response_headers["transactionId"]
         self.last_action_pin_auth = headers["pAuth"]
 
         _LOGGER.debug(f"{DOMAIN} - Received lock_action response")
 
-    def start_climate(
+    async def start_climate(
         self, token: Token, set_temp, duration, defrost, climate, heating
     ):
         url = self.API_URL + "rmtstrt"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
         set_temp = self.get_temperature_range_by_region().index(set_temp)
         set_temp = hex(set_temp).split("x")
@@ -259,26 +259,24 @@ class KiaUvoApiCA(KiaUvoApiImpl):
             },
             "pin": self.pin,
         }
-        data = json.dumps(payload)
         # _LOGGER.debug(f"{DOMAIN} - Planned start_climate payload {payload}")
 
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response = await self.api_session.post(url=url, headers=headers, data=json.dumps(payload))
         response_headers = response.headers
-        response = response.json()
 
         self.last_action_xid = response_headers["transactionId"]
         self.last_action_pin_auth = headers["pAuth"]
 
-        _LOGGER.debug(f"{DOMAIN} - Received start_climate response {response}")
+        _LOGGER.debug(f"{DOMAIN} - Received start_climate response {await response.text()}")
 
-    def start_climate_ev(
+    async def start_climate_ev(
         self, token: Token, set_temp, duration, defrost, climate, heating
     ):
         url = self.API_URL + "evc/rfon"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
         set_temp = self.get_temperature_range_by_region().index(set_temp)
         set_temp = hex(set_temp).split("x")
@@ -299,62 +297,58 @@ class KiaUvoApiCA(KiaUvoApiImpl):
             "pin": self.pin,
         }
 
-        data = json.dumps(payload)
         # _LOGGER.debug(f"{DOMAIN} - Planned start_climate_ev payload {payload}")
 
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response = self.api_session.post(url=url, headers=headers, data=json.dumps(payload))
         response_headers = response.headers
-        response = response.json()
 
         self.last_action_xid = response_headers["transactionId"]
         self.last_action_pin_auth = headers["pAuth"]
-        _LOGGER.debug(f"{DOMAIN} - Received start_climate_ev response {response}")
+        _LOGGER.debug(f"{DOMAIN} - Received start_climate_ev response {await response.text()}")
 
-    def stop_climate(self, token: Token):
+    async def stop_climate(self, token: Token):
         url = self.API_URL + "rmtstp"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
-        response = requests.post(
+        response = await self.api_session.post(
             url, headers=headers, data=json.dumps({"pin": self.pin})
         )
         response_headers = response.headers
-        response = response.json()
 
         self.last_action_xid = response_headers["transactionId"]
         self.last_action_pin_auth = headers["pAuth"]
 
         _LOGGER.debug(f"{DOMAIN} - Received stop_climate response")
 
-    def stop_climate_ev(self, token: Token):
+    async def stop_climate_ev(self, token: Token):
         url = self.API_URL + "evc/rfoff"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
-        response = requests.post(
-            url, headers=headers, data=json.dumps({"pin": self.pin})
+        response = await self.api_session.post(
+            url=url, headers=headers, data=json.dumps({"pin": self.pin})
         )
         response_headers = response.headers
-        response = response.json()
 
         self.last_action_xid = response_headers["transactionId"]
         self.last_action_pin_auth = headers["pAuth"]
 
         _LOGGER.debug(f"{DOMAIN} - Received stop_climate response")
 
-    def check_last_action_status(self, token: Token):
+    async def check_last_action_status(self, token: Token):
         url = self.API_URL + "rmtsts"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
         headers["transactionId"] = self.last_action_xid
         headers["pAuth"] = self.last_action_pin_auth
-        response = requests.post(url, headers=headers)
-        response = response.json()
+        response = await self.api_session.post(url=url, headers=headers)
+        response = await response.json()
 
         self.last_action_completed = (
             response["result"]["transaction"]["apiStatusCode"] != "null"
@@ -364,32 +358,35 @@ class KiaUvoApiCA(KiaUvoApiImpl):
             _LOGGER.debug(f"{DOMAIN} - Last action_status: {action_status}")
         return self.last_action_completed
 
-    def start_charge(self, token: Token):
+    async def start_charge(self, token: Token):
         url = self.API_URL + "evc/rcstrt"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
-        response = requests.post(
-            url, headers=headers, data=json.dumps({"pin": self.pin})
+        response = await self.api_session.post(
+            url=url, headers=headers, data=json.dumps({"pin": self.pin})
         )
         response_headers = response.headers
-        response = response.json()
 
-        _LOGGER.debug(f"{DOMAIN} - Received start_charge response {response}")
+        self.last_action_xid = response_headers["transactionId"]
+        self.last_action_pin_auth = headers["pAuth"]
 
-    def stop_charge(self, token: Token):
+        _LOGGER.debug(f"{DOMAIN} - Received start_charge response {await response.text()}")
+
+    async def stop_charge(self, token: Token):
         url = self.API_URL + "evc/rcstp"
         headers = self.API_HEADERS
         headers["accessToken"] = token.access_token
         headers["vehicleId"] = token.vehicle_id
-        headers["pAuth"] = self.get_pin_token(token)
+        headers["pAuth"] = await self.get_pin_token(token)
 
-        response = requests.post(
-            url, headers=headers, data=json.dumps({"pin": self.pin})
+        response = await self.api_session.post(
+            url=url, headers=headers, data=json.dumps({"pin": self.pin})
         )
         response_headers = response.headers
-        response = response.json()
+        self.last_action_xid = response_headers["transactionId"]
+        self.last_action_pin_auth = headers["pAuth"]
 
-        _LOGGER.debug(f"{DOMAIN} - Received start_charge response {response}")
+        _LOGGER.debug(f"{DOMAIN} - Received start_charge response {await response.text()}")

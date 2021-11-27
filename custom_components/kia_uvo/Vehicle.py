@@ -52,15 +52,11 @@ class Vehicle:
         try:
             previous_vehicle_status = self.get_child_value("vehicleStatus")
             previous_vehicle_location = self.get_child_value("vehicleLocation")
-            self.vehicle_data = await self.hass.async_add_executor_job(
-                self.kia_uvo_api.get_cached_vehicle_status, self.token
-            )
+            self.vehicle_data = await self.kia_uvo_api.get_cached_vehicle_status(self.token)
             self.set_last_updated()
             self.set_engine_type()
             if self.enable_geolocation_entity:
-                await self.hass.async_add_executor_job(
-                    self.set_geocoded_location, previous_vehicle_location
-                )
+                await self.set_geocoded_location(previous_vehicle_location)
 
             if (
                 not self.get_child_value("vehicleStatus.engine")
@@ -84,9 +80,7 @@ class Vehicle:
             )
 
     async def force_update(self):
-        await self.hass.async_add_executor_job(
-            self.kia_uvo_api.update_vehicle_status, self.token
-        )
+        await self.kia_uvo_api.update_vehicle_status(self.token)
         await self.update()
 
     async def force_update_loop_start(self):
@@ -103,9 +97,7 @@ class Vehicle:
             )
 
     async def check_action_completed_loop(self, _):
-        await self.hass.async_add_executor_job(
-            self.kia_uvo_api.check_last_action_status, self.token
-        )
+        await self.kia_uvo_api.check_last_action_status(self.token)
         if self.kia_uvo_api.last_action_completed:
             self.kia_uvo_api.last_action_xid = None
             await self.update()
@@ -137,11 +129,11 @@ class Vehicle:
                 self.hass, INTERVAL_FORCE_UPDATE_AFTER_COMMAND, self.force_update_loop
             )
 
-    def set_geocoded_location(self, old_vehicle_location):
+    async def set_geocoded_location(self, old_vehicle_location):
         old_lat = None
         old_lon = None
         old_geocode = None
-        if not old_vehicle_location is None:
+        if old_vehicle_location is not None:
             old_lat = old_vehicle_location["coord"]["lat"]
             old_lon = old_vehicle_location["coord"]["lon"]
             old_geocode = old_vehicle_location.get("geocodedLocation", None)
@@ -152,14 +144,12 @@ class Vehicle:
         if (old_lat != new_lat or old_lon != new_lon) or old_geocode is None:
             self.vehicle_data["vehicleLocation"][
                 "geocodedLocation"
-            ] = self.kia_uvo_api.get_geocoded_location(new_lat, new_lon)
+            ] = await self.kia_uvo_api.get_geocoded_location(new_lat, new_lon)
         else:
             self.vehicle_data["vehicleLocation"]["geocodedLocation"] = old_geocode
 
     async def lock_action(self, action: VEHICLE_LOCK_ACTION):
-        await self.hass.async_add_executor_job(
-            self.kia_uvo_api.lock_action, self.token, action.value
-        )
+        await self.kia_uvo_api.lock_action(self.token, action.value)
         await self.force_update_loop_start()
 
     async def refresh_token(self):
@@ -168,7 +158,7 @@ class Vehicle:
         )
         if self.token.valid_until <= datetime.now().strftime(DATE_FORMAT):
             _LOGGER.debug(f"{DOMAIN} - Refresh token expired")
-            await self.hass.async_add_executor_job(self.login)
+            await self.login
             return True
         return False
 
@@ -184,8 +174,7 @@ class Vehicle:
         if heating is None:
             heating = False
         if self.engine_type == VEHICLE_ENGINE_TYPE.EV and self.region == REGION_CANADA:
-            await self.hass.async_add_executor_job(
-                self.kia_uvo_api.start_climate_ev,
+            await self.kia_uvo_api.start_climate_ev(
                 self.token,
                 set_temp,
                 duration,
@@ -194,8 +183,7 @@ class Vehicle:
                 heating,
             )
         else:
-            await self.hass.async_add_executor_job(
-                self.kia_uvo_api.start_climate,
+            await self.kia_uvo_api.start_climate(
                 self.token,
                 set_temp,
                 duration,
@@ -207,23 +195,17 @@ class Vehicle:
 
     async def stop_climate(self):
         if self.engine_type == VEHICLE_ENGINE_TYPE.EV and self.region == REGION_CANADA:
-            await self.hass.async_add_executor_job(
-                self.kia_uvo_api.stop_climate_ev, self.token
-            )
+            await self.kia_uvo_api.stop_climate_ev(self.token)
         else:
-            await self.hass.async_add_executor_job(
-                self.kia_uvo_api.stop_climate, self.token
-            )
+            await self.kia_uvo_api.stop_climate(self.token)
         await self.force_update_loop_start()
 
     async def start_charge(self):
-        await self.hass.async_add_executor_job(
-            self.kia_uvo_api.start_charge, self.token
-        )
+        await self.kia_uvo_api.start_charge(self.token)
         await self.force_update_loop_start()
 
     async def stop_charge(self):
-        await self.hass.async_add_executor_job(self.kia_uvo_api.stop_charge, self.token)
+        await self.kia_uvo_api.stop_charge(self.token)
         await self.force_update_loop_start()
 
     async def set_charge_limits(self, ac_limit: int, dc_limit: int):
@@ -231,13 +213,11 @@ class Vehicle:
             ac_limit = 90
         if dc_limit is None:
             dc_limit = 90
-        await self.hass.async_add_executor_job(
-            self.kia_uvo_api.set_charge_limits, self.token, ac_limit, dc_limit
-        )
+        await self.kia_uvo_api.set_charge_limits(self.token, ac_limit, dc_limit)
         await self.force_update_loop_start()
 
-    def login(self):
-        self.token = self.kia_uvo_api.login()
+    async def login(self):
+        self.token = await self.kia_uvo_api.login()
 
     def set_last_updated(self):
         m = re.match(
